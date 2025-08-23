@@ -3,7 +3,7 @@ I am building a script to test multiple kinds of models on multiple datasets. I'
 
 ## Install requirements
 ```
-python3 -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 ## Example run
 
