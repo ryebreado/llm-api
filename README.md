@@ -1,5 +1,5 @@
 # llm-api
-I am building a script to test multiple kinds of models on multiple datasets. I'm starting with just the Claude API and the FRENK hate speech dataset.
+I am building a script to test multiple kinds of models on multiple datasets. I would like to support multiple APIs and multiple datasets.
 
 ## Install requirements
 ```
@@ -51,3 +51,12 @@ Confusion Matrix:
 
 ### FRENK dataset
 English subset of the [FRENK hate speech dataset](https://huggingface.co/datasets/classla/FRENK-hate-en), tagged for offensive/nonoffensive and two categories of hate: LGBT and migrants. I would like to use the other languages later.
+
+## Models supported
+System supports Anthropic and OpenAI APIs, automatically chooses based on the model name and the dictionary provided in `llm_client.py` in the variable `MODEL_PROVIDERS`. These commands work:
+```
+python evaluate_llm.py --rows=1-3 --model='gpt-4o'
+```
+```
+python evaluate_llm.py --rows=1-3 --model='claude-sonnet-4-20250514'
+```

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import sys
-from claude_cli import query_claude
+from llm_client import query_llm
 from explore_dataset import load_frenk_dataset, get_row_by_index
 
 
@@ -142,7 +142,7 @@ Text: "{row['text']}"
 Respond with only one word: either "Acceptable" or "Offensive"."""
 
     try:
-        response_data = query_claude(prompt, model, return_usage=True)
+        response_data = query_llm(prompt, model, return_usage=True)
         llm_response = response_data['text'].strip()
         token_usage = response_data['usage']
         
@@ -175,7 +175,7 @@ Respond with only one word: either "Acceptable" or "Offensive"."""
 def main():
     parser = argparse.ArgumentParser(description='Evaluate LLM on FRENK hate speech dataset')
     parser.add_argument('--rows', required=True, help='Row range to evaluate (e.g., "1-5" for rows 1-5 inclusive)')
-    parser.add_argument('--model', default='claude-sonnet-4-20250514', help='Claude model to use')
+    parser.add_argument('--model', default='claude-sonnet-4-20250514', help='Model to use (Claude or OpenAI)')
     parser.add_argument('--dataset', default='data/FRENK-hate-en/dev.tsv', help='Path to dataset file')
     
     args = parser.parse_args()
