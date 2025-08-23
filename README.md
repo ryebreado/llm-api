@@ -49,8 +49,11 @@ Confusion Matrix:
 
 ## Datasets
 
-### FRENK dataset
-English subset of the [FRENK hate speech dataset](https://huggingface.co/datasets/classla/FRENK-hate-en), tagged for offensive/nonoffensive and two categories of hate: LGBT and migrants. I would like to use the other languages later.
+### FRENK hate speech dataset
+Dataset tagged for offensive/nonoffensive and two categories of hate: LGBT and migrants. In 3 languages.
+* [English subset](https://huggingface.co/datasets/classla/FRENK-hate-en)
+* [Slovenian subset](https://huggingface.co/datasets/classla/FRENK-hate-sl)
+* [Croatian subset](https://huggingface.co/datasets/classla/FRENK-hate-hr)
 
 ## Models supported
 System supports Anthropic and OpenAI APIs, automatically chooses based on the model name and the dictionary provided in `llm_client.py` in the variable `MODEL_PROVIDERS`. These commands work:
