@@ -4,6 +4,7 @@ import sys
 import argparse
 from anthropic import Anthropic
 from openai import OpenAI
+from typing import Any
 
 def _get_provider(model):
     """Determine provider based on model name prefix"""
@@ -42,7 +43,7 @@ def query_llm(query, model=DEFAULT_MODEL, return_usage=False):
         raise Exception(f"Unknown provider: {provider}")
 
 
-def _query_anthropic(query, model, api_key, return_usage):
+def _query_anthropic(query, model, api_key, return_usage) -> str | dict[str, Any]:
     """Query Anthropic Claude API"""
     if api_key is None:
         api_key = os.getenv('ANTHROPIC_API_KEY')
