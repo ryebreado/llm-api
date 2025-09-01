@@ -208,3 +208,5 @@ __marimo__/
 
 # Generated data files
 data/generated/
+
+set_api_key.sh

@@ -5,6 +5,22 @@ I am building a script to test multiple kinds of models on multiple datasets. I 
 ```
 python -m pip install -r requirements.txt
 ```
+
+## API Keys Setup
+To use the LLM APIs, you need to set up your API keys. Create a file called `set_api_keys.sh` in the root directory:
+
+```bash
+export OPENAI_API_KEY="your_openai_api_key_here"
+export ANTHROPIC_API_KEY="your_anthropic_api_key_here"
+```
+
+Then make it executable and source it before running the scripts:
+```bash
+chmod +x set_api_keys.sh
+source set_api_keys.sh
+```
+
+**Note:** This file is already added to `.gitignore` so it won't be committed to version control. Replace the placeholder values with your actual API keys and keep them secure and private.
 ## Example run
 
 If you run it with this command
@@ -56,7 +72,7 @@ Dataset tagged for offensive/nonoffensive and two categories of hate: LGBT and m
 * [Croatian subset](https://huggingface.co/datasets/classla/FRENK-hate-hr)
 
 ### Letter occurrence analysis
-The `letter_analysis.py` script analyzes text files to create mappings of letters to words containing specific numbers of that letter. It generates a nested dictionary structure like `{'a': {0: ['words', 'with', 'no', 'a'], 1: ['words', 'with', 'one', 'a']}}`.
+The `letter_analysis.py` script analyzes text files to create mappings of letters to words containing specific counts of that letter. It generates a nested dictionary structure like `{'a': {0: ['words', 'with', 'no', 'a'], 1: ['words', 'with', 'one', 'a']}}`.
 
 **Usage:**
 ```bash
@@ -73,6 +89,34 @@ python3 letter_analysis.py data/gutenberg/alice.txt --max-n 4 --max-words 5
 - `--output-dir`: Directory for JSON output (default: data/generated)
 
 The script preserves hyphenated words and outputs random samples to avoid alphabetical bias. Results are saved as JSON files in `data/generated/`.
+
+### Letter counting evaluation
+The `evaluate_letter_counting.py` script uses the generated letter analysis data to test LLM letter-counting abilities. It prompts models with questions like "Answer with a single number: how many letters 'r' are there in 'strawberry'" and compares predictions to ground truth.
+
+**Usage:**
+```bash
+# Set API keys first
+source set_api_key.sh
+
+# Small test (10 cases) with logprobs
+python3 evaluate_letter_counting.py data/generated/alice_letter_analysis.json --max-words 10 --model gpt-4o-mini --logprobs
+
+# Test with Claude
+python3 evaluate_letter_counting.py data/generated/alice_letter_analysis.json --max-words 20 --model claude-3-haiku-20240307
+
+# Full evaluation
+python3 evaluate_letter_counting.py data/generated/alice_letter_analysis.json --model gpt-4o-mini
+```
+
+**Parameters:**
+- `--max-words`: Limit total test cases for debugging (saves API credits)
+- `--model`: Model to use (supports both OpenAI and Anthropic)
+- `--logprobs`: Enable log probabilities (OpenAI only)
+- `--temperature`: Sampling temperature (default: 0.0)
+- `--shuffle`: Randomly shuffle test cases
+- `--output-dir`: Directory for results (default: data/generated)
+
+The script only counts responses that are single numbers, provides accuracy statistics by letter count, and includes logprobs data for OpenAI models showing alternative predictions and confidence levels.
 
 ## Models supported
 System supports Anthropic and OpenAI APIs, automatically chooses based on the model name and the dictionary provided in `llm_client.py` in the variable `MODEL_PROVIDERS`. These commands work:
