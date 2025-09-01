@@ -55,6 +55,25 @@ Dataset tagged for offensive/nonoffensive and two categories of hate: LGBT and m
 * [Slovenian subset](https://huggingface.co/datasets/classla/FRENK-hate-sl)
 * [Croatian subset](https://huggingface.co/datasets/classla/FRENK-hate-hr)
 
+### Letter occurrence analysis
+The `letter_analysis.py` script analyzes text files to create mappings of letters to words containing specific numbers of that letter. It generates a nested dictionary structure like `{'a': {0: ['words', 'with', 'no', 'a'], 1: ['words', 'with', 'one', 'a']}}`.
+
+**Usage:**
+```bash
+# Analyze Alice in Wonderland text
+python3 letter_analysis.py data/gutenberg/alice.txt
+
+# Custom parameters
+python3 letter_analysis.py data/gutenberg/alice.txt --max-n 4 --max-words 5
+```
+
+**Parameters:**
+- `--max-n`: Maximum number of letter occurrences to track (default: 3)
+- `--max-words`: Maximum words to sample per letter/count combination (default: 3)
+- `--output-dir`: Directory for JSON output (default: data/generated)
+
+The script preserves hyphenated words and outputs random samples to avoid alphabetical bias. Results are saved as JSON files in `data/generated/`.
+
 ## Models supported
 System supports Anthropic and OpenAI APIs, automatically chooses based on the model name and the dictionary provided in `llm_client.py` in the variable `MODEL_PROVIDERS`. These commands work:
 ```
