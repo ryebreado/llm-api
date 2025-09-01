@@ -118,6 +118,35 @@ python3 evaluate_letter_counting.py data/generated/alice_letter_analysis.json --
 
 The script only counts responses that are single numbers, provides accuracy statistics by letter count, and includes logprobs data for OpenAI models showing alternative predictions and confidence levels.
 
+### Results visualization
+The `visualize_results.py` script creates comprehensive visualizations from letter counting evaluation data, focusing on models with logprobs support to show confidence and uncertainty patterns.
+
+**Usage:**
+```bash
+# Generate all visualizations
+python3 visualize_results.py data/generated/alice_letter_analysis_evaluation_gpt_4o_mini_20250901_202042.json
+
+# Generate specific plots
+python3 visualize_results.py data/generated/evaluation_file.json --plots scatter dashboard
+
+# Custom output directory
+python3 visualize_results.py data/generated/evaluation_file.json --output-dir results/charts
+```
+
+**Available Visualizations:**
+- `scatter`: Confidence vs accuracy scatter plot - reveals overconfident vs uncertain predictions
+- `grid`: Letter-specific performance heatmap - shows which letters/counts are hardest
+- `violin`: Probability distribution plots - confidence patterns by expected count
+- `heatmap`: Alternative predictions matrix - systematic error patterns  
+- `dashboard`: Comprehensive summary with multiple metrics and error analysis
+
+**Parameters:**
+- `--plots`: Select specific visualizations or 'all' (default: all)
+- `--output-dir`: Directory for generated charts (default: data/generated/visualizations)
+- `--format`: Output format - png, pdf, or svg (default: png)
+
+The visualizations help identify model calibration issues, systematic biases, and performance patterns across different letter counting tasks. Charts are saved as high-resolution files suitable for reports and presentations.
+
 ## Models supported
 System supports Anthropic and OpenAI APIs, automatically chooses based on the model name and the dictionary provided in `llm_client.py` in the variable `MODEL_PROVIDERS`. These commands work:
 ```

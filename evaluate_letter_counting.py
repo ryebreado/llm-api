@@ -3,8 +3,10 @@ import argparse
 import json
 import os
 import random
+import numpy as np
 from datetime import datetime
 from pathlib import Path
+from tqdm import tqdm
 from llm_client import query_llm
 
 
@@ -152,7 +154,7 @@ def extract_logprobs_info(logprobs_data):
         token_info = {
             'token': token_data.token,
             'logprob': token_data.logprob,
-            'probability': round(pow(2.718281828, token_data.logprob) * 100, 2)  # Convert to percentage
+            'probability': round(min(100.0, np.exp(token_data.logprob) * 100), 2)  # Convert to percentage, cap at 100%
         }
         
         # Add top alternatives if available
@@ -162,7 +164,7 @@ def extract_logprobs_info(logprobs_data):
                 alternatives.append({
                     'token': alt.token,
                     'logprob': alt.logprob,
-                    'probability': round(pow(2.718281828, alt.logprob) * 100, 2)
+                    'probability': round(min(100.0, np.exp(alt.logprob) * 100), 2)
                 })
             token_info['alternatives'] = alternatives
         
@@ -325,15 +327,28 @@ def main():
     
     # Evaluate all test cases
     results = []
-    for i, (letter, word, expected_count) in enumerate(test_cases, 1):
-        if i % 10 == 0:  # Progress indicator
-            print(f"Progress: {i}/{len(test_cases)} ({i/len(test_cases):.1%})")
-        
-        result = evaluate_single_case(
-            letter, word, expected_count, 
-            args.model, args.temperature, args.logprobs
-        )
-        results.append(result)
+    
+    # Create progress bar
+    with tqdm(test_cases, desc="Evaluating", unit="case") as pbar:
+        for letter, word, expected_count in pbar:
+            # Update progress bar description with current word
+            pbar.set_description(f"Testing '{word[:15]}...' (letter '{letter}')")
+            
+            result = evaluate_single_case(
+                letter, word, expected_count, 
+                args.model, args.temperature, args.logprobs
+            )
+            results.append(result)
+            
+            # Update postfix with running accuracy
+            if len(results) > 0:
+                correct = sum(1 for r in results if r.get('is_correct'))
+                valid = sum(1 for r in results if r.get('predicted_count') is not None)
+                accuracy = correct / valid if valid > 0 else 0
+                pbar.set_postfix({
+                    'Accuracy': f'{accuracy:.1%}', 
+                    'Valid': f'{valid}/{len(results)}'
+                })
     
     # Calculate statistics
     stats = calculate_statistics(results)
