@@ -21,7 +21,18 @@ source set_api_keys.sh
 ```
 
 **Note:** This file is already added to `.gitignore` so it won't be committed to version control. Replace the placeholder values with your actual API keys and keep them secure and private.
-## Example run
+
+## Datasets
+
+We tested the infrastructure with two different datasets, but it is able to be extended to more.
+
+### FRENK hate speech dataset
+Dataset tagged for offensive/nonoffensive and two categories of hate: LGBT and migrants. In 3 languages.
+* [English subset](https://huggingface.co/datasets/classla/FRENK-hate-en)
+* [Slovenian subset](https://huggingface.co/datasets/classla/FRENK-hate-sl)
+* [Croatian subset](https://huggingface.co/datasets/classla/FRENK-hate-hr)
+
+#### Example run
 
 If you run it with this command
 ```
@@ -63,13 +74,6 @@ Confusion Matrix:
   False Negative (Offensive → Acceptable): 0
 ```
 
-## Datasets
-
-### FRENK hate speech dataset
-Dataset tagged for offensive/nonoffensive and two categories of hate: LGBT and migrants. In 3 languages.
-* [English subset](https://huggingface.co/datasets/classla/FRENK-hate-en)
-* [Slovenian subset](https://huggingface.co/datasets/classla/FRENK-hate-sl)
-* [Croatian subset](https://huggingface.co/datasets/classla/FRENK-hate-hr)
 
 ### Letter occurrence analysis
 The `letter_analysis.py` script analyzes text files to create mappings of letters to words containing specific counts of that letter. It generates a nested dictionary structure like `{'a': {0: ['words', 'with', 'no', 'a'], 1: ['words', 'with', 'one', 'a']}}`.
