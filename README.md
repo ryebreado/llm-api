@@ -12,6 +12,7 @@ To use the LLM APIs, you need to set up your API keys. Create a file called `set
 ```bash
 export OPENAI_API_KEY="your_openai_api_key_here"
 export ANTHROPIC_API_KEY="your_anthropic_api_key_here"
+export TOGETHERAI_API_KEY="your_together_api_key_here"
 ```
 
 Then make it executable and source it before running the scripts:
@@ -21,6 +22,32 @@ source set_api_keys.sh
 ```
 
 **Note:** This file is already added to `.gitignore` so it won't be committed to version control. Replace the placeholder values with your actual API keys and keep them secure and private.
+
+## Quick Start - Single Queries
+
+You can use `llm_client.py` directly for single queries with any supported model:
+
+```bash
+# Set API keys first
+source set_api_key.sh
+
+# Basic queries
+python llm_client.py "What is the capital of France?"
+python llm_client.py "What is the capital of France?" --model gpt-4o
+python llm_client.py "What is the capital of France?" --model meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+
+# With temperature control (OpenAI and Together AI only)
+python llm_client.py "Write a creative story" --model gpt-4o --temperature 1.5
+
+# With log probabilities (OpenAI and Together AI only)
+python llm_client.py "Answer with a single number: 2+2" --model gpt-4o-mini --logprobs
+python llm_client.py "Answer with a single number: 2+2" --model meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo --logprobs
+```
+
+**Parameters:**
+- `--model`: Specify which model to use (auto-detects API)
+- `--logprobs`: Show token probabilities and alternatives
+- `--temperature`: Control randomness (0.0=deterministic, 2.0=very random)
 
 ## Datasets
 
@@ -161,10 +188,23 @@ python3 visualize_results.py data/generated/evaluation_file.json --output-dir re
 The script automatically extracts model names from evaluation filenames and uses the most recent evaluation file for each model when comparing multiple models. It gracefully handles missing confidence data for evaluations without logprobs. The visualizations help identify model calibration issues, systematic biases, and performance patterns across different letter counting tasks. Charts are saved as high-resolution files suitable for reports and presentations.
 
 ## Models supported
-System supports Anthropic and OpenAI APIs, automatically chooses based on the model name and the dictionary provided in `llm_client.py` in the variable `MODEL_PROVIDERS`. These commands work:
+System supports Anthropic, OpenAI, and Together AI APIs, automatically chooses based on the model name prefix. These commands work:
 ```
 python evaluate_llm.py --rows=1-3 --model='gpt-4o'
 ```
 ```
 python evaluate_llm.py --rows=1-3 --model='claude-sonnet-4-20250514'
 ```
+```
+python evaluate_llm.py --rows=1-3 --model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo'
+```
+
+**Model routing:**
+- `claude-*` → Anthropic API
+- `gpt-*` → OpenAI API  
+- `meta-*` or models with `/` → Together AI API
+
+**Logprobs support:**
+- OpenAI: Full logprobs with alternatives (top 5 tokens)
+- Together AI: Basic logprobs (selected token only)
+- Anthropic: Not supported

@@ -5,6 +5,7 @@ import argparse
 import numpy as np
 from anthropic import Anthropic
 from openai import OpenAI
+from together import Together
 from typing import Any
 
 def _get_provider(model):
@@ -13,22 +14,24 @@ def _get_provider(model):
         return 'anthropic'
     elif model.startswith('gpt-'):
         return 'openai'
+    elif model.startswith('meta-') or '/' in model:  # Together AI models often have format like meta-llama/... or vendor/model
+        return 'together'
     else:
-        raise Exception(f"Unsupported model: {model}. Model must start with 'claude-' or 'gpt-'")
+        raise Exception(f"Unsupported model: {model}. Model must start with 'claude-', 'gpt-', 'meta-', or contain '/' for Together AI models")
 
 DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 
 
 def query_llm(query, model=DEFAULT_MODEL, return_usage=False, logprobs=False, temperature=1.0):
     """
-    Send a query to an LLM (Claude or OpenAI) and return the response text.
+    Send a query to an LLM (Claude, OpenAI, or Together AI) and return the response text.
     
     Args:
         query (str): The query to send to the LLM
         model (str): The model to use (auto-routes to correct API)
         return_usage (bool): If True, return dict with text and usage info
-        logprobs (bool): If True, return log probabilities (OpenAI only)
-        temperature (float): Sampling temperature 0.0-2.0 (OpenAI only, ignored for Anthropic)
+        logprobs (bool): If True, return log probabilities (OpenAI and Together AI only)
+        temperature (float): Sampling temperature 0.0-2.0 (OpenAI and Together AI only, ignored for Anthropic)
     
     Returns:
         str or dict: LLM's response text, or dict with 'text', 'usage', and 'logprobs' if return_usage=True
@@ -39,13 +42,15 @@ def query_llm(query, model=DEFAULT_MODEL, return_usage=False, logprobs=False, te
     provider = _get_provider(model)
     
     # Validate logprobs usage
-    if logprobs and provider != 'openai':
-        raise Exception("logprobs parameter is only supported for OpenAI models (gpt-* models)")
+    if logprobs and provider not in ['openai', 'together']:
+        raise Exception("logprobs parameter is only supported for OpenAI (gpt-* models) and Together AI models")
     
     if provider == 'anthropic':
         return _query_anthropic(query, model, None, return_usage)
     elif provider == 'openai':
         return _query_openai(query, model, None, return_usage, logprobs, temperature)
+    elif provider == 'together':
+        return _query_together(query, model, None, return_usage, logprobs, temperature)
     else:
         raise Exception(f"Unknown provider: {provider}")
 
@@ -117,11 +122,106 @@ def _query_openai(query, model, api_key, return_usage, logprobs=False, temperatu
             }
             
         if logprobs:
-            result['logprobs'] = response.choices[0].logprobs
+            result['logprobs'] = _normalize_logprobs(response.choices[0].logprobs, 'openai')
             
         return result
     else:
         return response.choices[0].message.content
+
+
+def _query_together(query, model, api_key, return_usage, logprobs=False, temperature=1.0):
+    """Query Together AI API"""
+    if api_key is None:
+        api_key = os.getenv('TOGETHERAI_API_KEY')
+        
+    if not api_key:
+        raise Exception("TOGETHERAI_API_KEY environment variable not set")
+    
+    client = Together(api_key=api_key)
+    
+    params = {
+        "model": model,
+        "max_tokens": 1024,
+        "temperature": temperature,
+        "messages": [
+            {"role": "user", "content": query}
+        ]
+    }
+    
+    if logprobs:
+        params["logprobs"] = 1  # Together AI uses 1 instead of True
+    
+    response = client.chat.completions.create(**params)
+    
+    if return_usage or logprobs:
+        result = {
+            'text': response.choices[0].message.content
+        }
+        
+        if return_usage:
+            result['usage'] = {
+                'input_tokens': response.usage.prompt_tokens,
+                'output_tokens': response.usage.completion_tokens
+            }
+            
+        if logprobs:
+            result['logprobs'] = _normalize_logprobs(response.choices[0].logprobs, 'together')
+            
+        return result
+    else:
+        return response.choices[0].message.content
+
+
+def _normalize_logprobs(logprobs_data, provider):
+    """
+    Normalize logprobs data from different providers into a consistent format.
+    
+    Returns a structure with .content attribute containing list of token objects with:
+    - token: str
+    - logprob: float  
+    - top_logprobs: list of dicts with 'token' and 'logprob' keys
+    """
+    if not logprobs_data:
+        return None
+    
+    class NormalizedLogprobs:
+        def __init__(self):
+            self.content = []
+    
+    class NormalizedToken:
+        def __init__(self, token, logprob, top_logprobs=None):
+            self.token = token
+            self.logprob = logprob
+            self.top_logprobs = top_logprobs or []
+    
+    class TopLogprob:
+        def __init__(self, token, logprob):
+            self.token = token
+            self.logprob = logprob
+    
+    result = NormalizedLogprobs()
+    
+    if provider == 'openai':
+        # OpenAI format is already the target format
+        return logprobs_data
+    
+    elif provider == 'together':
+        # Together AI format: tokens, token_logprobs, top_logprobs lists
+        if hasattr(logprobs_data, 'tokens') and logprobs_data.tokens:
+            for i, token in enumerate(logprobs_data.tokens):
+                logprob = logprobs_data.token_logprobs[i] if i < len(logprobs_data.token_logprobs) else None
+                
+                top_logprobs = []
+                if hasattr(logprobs_data, 'top_logprobs') and i < len(logprobs_data.top_logprobs):
+                    top_logprob_dict = logprobs_data.top_logprobs[i]
+                    if top_logprob_dict:
+                        for alt_token, alt_logprob in top_logprob_dict.items():
+                            top_logprobs.append(TopLogprob(alt_token, alt_logprob))
+                
+                if logprob is not None:
+                    result.content.append(NormalizedToken(token, logprob, top_logprobs))
+    
+    return result
 
 
 def format_logprobs_output(response_data):
@@ -176,11 +276,11 @@ def format_logprobs_output(response_data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Send queries to LLM APIs (Claude or OpenAI)')
+    parser = argparse.ArgumentParser(description='Send queries to LLM APIs (Claude, OpenAI, or Together AI)')
     parser.add_argument('query', help='The query to send to the LLM')
-    parser.add_argument('--model', default=DEFAULT_MODEL, help='Model to use (claude-* for Anthropic, gpt-* for OpenAI)')
-    parser.add_argument('--logprobs', action='store_true', default=False, help='Return log probabilities for each token (OpenAI models only)')
-    parser.add_argument('--temperature', type=float, default=1.0, help='Sampling temperature 0.0-2.0 (0.0=deterministic, 2.0=very random, OpenAI only)')
+    parser.add_argument('--model', default=DEFAULT_MODEL, help='Model to use (claude-* for Anthropic, gpt-* for OpenAI, meta-*/* for Together AI)')
+    parser.add_argument('--logprobs', action='store_true', default=False, help='Return log probabilities for each token (OpenAI and Together AI models only)')
+    parser.add_argument('--temperature', type=float, default=1.0, help='Sampling temperature 0.0-2.0 (0.0=deterministic, 2.0=very random, OpenAI and Together AI only)')
     
     args = parser.parse_args()
     
