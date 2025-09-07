@@ -145,7 +145,7 @@ def create_letter_performance_grid(data, model_name, output_dir):
                 xticklabels=[f'{c} letters' for c in counts],
                 yticklabels=letters,
                 annot=True, fmt='.2f', 
-                cmap='RdYlGn', center=0.5, vmin=0, vmax=1,
+                cmap='Greens', vmin=0, vmax=1,
                 ax=ax, cbar_kws={'label': 'Accuracy'})
     
     plt.title(f'Letter Counting Accuracy by Letter and Expected Count - {model_name}')
@@ -250,6 +250,9 @@ def create_alternatives_heatmap(data, model_name, output_dir):
                 annot=True, fmt='.1f', 
                 cmap='Blues', 
                 cbar_kws={'label': 'Frequency (weighted by probability)'})
+    
+    # Flip y-axis so Actual: 0 is at the bottom
+    plt.gca().invert_yaxis()
     
     plt.title(f'Prediction Alternatives Heatmap - {model_name}')
     plt.xlabel('Model Predictions')
