@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -372,13 +373,324 @@ def create_summary_dashboard(data, model_name, output_dir):
     return output_path
 
 
+def extract_model_name_from_filename(filename):
+    """Extract model name from evaluation filename pattern"""
+    # Pattern: input_evaluation_modelname_timestamp.json
+    parts = Path(filename).stem.split('_')
+    
+    # Find 'evaluation' and extract model name after it
+    try:
+        eval_index = parts.index('evaluation')
+        if eval_index + 1 < len(parts):
+            # Join parts between 'evaluation' and timestamp (last part)
+            model_parts = parts[eval_index + 1:-1]
+            if model_parts:
+                return '_'.join(model_parts)
+    except ValueError:
+        pass
+    
+    # Fallback: use filename stem
+    return Path(filename).stem
+
+
+def find_latest_files_by_model(file_paths):
+    """Group files by model name and return the most recent file for each model"""
+    model_files = {}
+    
+    for file_path in file_paths:
+        model_name = extract_model_name_from_filename(file_path)
+        
+        if model_name not in model_files:
+            model_files[model_name] = []
+        model_files[model_name].append(file_path)
+    
+    # Get most recent file for each model (by filename timestamp or modification time)
+    latest_files = {}
+    for model_name, files in model_files.items():
+        # Sort by modification time (most recent first)
+        latest_file = max(files, key=lambda f: os.path.getmtime(f))
+        latest_files[model_name] = latest_file
+    
+    return latest_files
+
+
+def create_openai_model_comparison(model_files, letter, output_dir):
+    """Create multi-OpenAI model comparison for a single letter (requires logprobs)"""
+    
+    # Find latest files by model name
+    latest_by_model = find_latest_files_by_model(model_files)
+    
+    print(f"Found models: {list(latest_by_model.keys())}")
+    for model, file_path in latest_by_model.items():
+        print(f"  {model}: {Path(file_path).name}")
+    
+    # Load data from all models
+    model_data = {}
+    for model_name, file_path in latest_by_model.items():
+        data = load_evaluation_data(file_path)
+        if data:
+            # Only include if logprobs are enabled
+            if data.get('metadata', {}).get('logprobs_enabled', False):
+                # Use extracted model name, not metadata model name
+                model_data[model_name] = data
+            else:
+                print(f"Skipping {model_name} - no logprobs data")
+    
+    if len(model_data) < 2:
+        print("Need at least 2 OpenAI models with logprobs data for comparison")
+        return None
+    
+    # Filter data for the specified letter
+    letter_results = {}
+    for model_name, data in model_data.items():
+        results = []
+        for result in data['results']:
+            if (result['letter'] == letter and 
+                result.get('is_correct') is not None and 
+                result.get('logprobs')):  # Must have logprobs
+                
+                confidence_data = extract_confidence_data([result])
+                if confidence_data:
+                    results.append({
+                        'word': result['word'],
+                        'expected_count': result['expected_count'],
+                        'predicted_count': result.get('predicted_count'),
+                        'is_correct': result['is_correct'],
+                        'confidence': confidence_data[0]['confidence'],
+                        'word_length': len(result['word']),
+                        'alternatives': confidence_data[0].get('alternatives', [])
+                    })
+        letter_results[model_name] = results
+    
+    # Create the visualization
+    fig = plt.figure(figsize=(20, 12))
+    colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D']  # OpenAI-style colors
+    
+    # 1. Confidence vs Expected Count - Jittered Strip Plot
+    ax1 = plt.subplot(2, 3, 1)
+    
+    for i, (model_name, results) in enumerate(letter_results.items()):
+        if not results:
+            continue
+            
+        df = pd.DataFrame(results)
+        clean_name = model_name.replace('-', ' ').title()
+        
+        for count in df['expected_count'].unique():
+            subset = df[df['expected_count'] == count]
+            # Add jitter to y-axis
+            y_jitter = count + (i - len(model_data)/2) * 0.12
+            
+            correct = subset[subset['is_correct'] == True]
+            incorrect = subset[subset['is_correct'] == False]
+            
+            if len(correct) > 0:
+                ax1.scatter(correct['confidence'], [y_jitter] * len(correct), 
+                           alpha=0.8, s=80, color=colors[i], marker='o',
+                           label=f'{clean_name} ✓' if count == df['expected_count'].min() else "")
+            
+            if len(incorrect) > 0:
+                ax1.scatter(incorrect['confidence'], [y_jitter] * len(incorrect),
+                           alpha=0.8, s=100, color=colors[i], marker='x',
+                           label=f'{clean_name} ✗' if count == df['expected_count'].min() else "")
+    
+    ax1.set_xlabel('Model Confidence (%)')
+    ax1.set_ylabel('Expected Letter Count')
+    ax1.set_title(f'Confidence by Expected Count - Letter "{letter.upper()}"')
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Model Accuracy Comparison with Confidence Intervals
+    ax2 = plt.subplot(2, 3, 2)
+    model_names = []
+    accuracies = []
+    conf_intervals = []
+    
+    for i, (model_name, results) in enumerate(letter_results.items()):
+        if not results:
+            continue
+        clean_name = model_name.replace('-', ' ').title()
+        model_names.append(clean_name)
+        accuracy = sum(1 for r in results if r['is_correct']) / len(results)
+        accuracies.append(accuracy)
+        
+        # 95% confidence interval
+        n = len(results)
+        ci = 1.96 * np.sqrt(accuracy * (1 - accuracy) / n) if n > 0 else 0
+        conf_intervals.append(ci)
+    
+    bars = ax2.bar(range(len(model_names)), accuracies, 
+                   color=colors[:len(model_names)], alpha=0.8, 
+                   yerr=conf_intervals, capsize=5)
+    ax2.set_xticks(range(len(model_names)))
+    ax2.set_xticklabels(model_names)
+    ax2.set_ylabel('Accuracy')
+    ax2.set_title(f'Accuracy Comparison - Letter "{letter.upper()}"')
+    ax2.set_ylim(0, 1)
+    
+    # Add value labels
+    for bar, accuracy in zip(bars, accuracies):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'{accuracy:.1%}', ha='center', va='bottom', fontweight='bold')
+    
+    # 3. Confidence Distribution - Box Plot
+    ax3 = plt.subplot(2, 3, 3)
+    confidence_data = []
+    model_labels = []
+    correctness_data = []
+    
+    for model_name, results in letter_results.items():
+        clean_name = model_name.replace('-', ' ').title()
+        for result in results:
+            # Only include results with confidence data
+            if 'confidence' in result and result['confidence'] is not None:
+                confidence_data.append(result['confidence'])
+                model_labels.append(clean_name)
+                correctness_data.append('Correct' if result['is_correct'] else 'Incorrect')
+    
+    if confidence_data:
+        df_box = pd.DataFrame({
+            'confidence': confidence_data,
+            'model': model_labels,
+            'correctness': correctness_data
+        })
+        
+        sns.boxplot(data=df_box, x='model', y='confidence', hue='correctness', ax=ax3)
+        ax3.set_xlabel('Model')
+        ax3.set_ylabel('Confidence (%)')
+        ax3.set_title(f'Confidence Distribution - Letter "{letter.upper()}"')
+        ax3.legend(title='Prediction')
+    
+    # 4. Alternative Predictions Analysis
+    ax4 = plt.subplot(2, 3, 4)
+    
+    for i, (model_name, results) in enumerate(letter_results.items()):
+        clean_name = model_name.replace('-', ' ').title()
+        
+        # Count how often top alternative matches correct answer
+        alternative_accuracy = []
+        for result in results:
+            if not result['is_correct'] and result['alternatives']:
+                # Check if correct answer is in top alternatives
+                correct_answer = str(result['expected_count'])
+                alt_tokens = [alt['token'] for alt in result['alternatives'][:3]]
+                alternative_accuracy.append(correct_answer in alt_tokens)
+        
+        if alternative_accuracy:
+            alt_acc = np.mean(alternative_accuracy)
+            ax4.bar(i, alt_acc, color=colors[i], alpha=0.8, label=clean_name)
+            ax4.text(i, alt_acc + 0.02, f'{alt_acc:.1%}', ha='center', va='bottom', fontweight='bold')
+    
+    ax4.set_xlabel('Model')
+    ax4.set_ylabel('Alternative Contains Correct Answer')
+    ax4.set_title(f'Alternative Predictions Quality - Letter "{letter.upper()}"')
+    ax4.set_ylim(0, 1)
+    ax4.set_xticks(range(len(letter_results)))
+    ax4.set_xticklabels([name.replace('-', ' ').title() for name in letter_results.keys()])
+    
+    # 5. Overconfidence Analysis
+    ax5 = plt.subplot(2, 3, 5)
+    
+    for i, (model_name, results) in enumerate(letter_results.items()):
+        clean_name = model_name.replace('-', ' ').title()
+        df = pd.DataFrame(results)
+        
+        # Skip confidence analysis if no confidence data available
+        if 'confidence' not in df.columns or df['confidence'].isna().all():
+            continue
+        
+        # Split into high confidence (>90%) and others
+        high_conf = df[df['confidence'] > 90]
+        low_conf = df[df['confidence'] <= 90]
+        
+        if len(high_conf) > 0 and len(low_conf) > 0:
+            high_acc = high_conf['is_correct'].mean()
+            low_acc = low_conf['is_correct'].mean()
+            
+            x = [i - 0.2, i + 0.2]
+            y = [high_acc, low_acc]
+            labels = ['High Conf (>90%)', 'Lower Conf (≤90%)']
+            
+            bar1 = ax5.bar(x[0], y[0], width=0.3, color=colors[i], alpha=0.9, label='High Conf (>90%)' if i == 0 else "")
+            bar2 = ax5.bar(x[1], y[1], width=0.3, color=colors[i], alpha=0.5, label='Lower Conf (≤90%)' if i == 0 else "")
+            bars = [bar1[0], bar2[0]]
+            
+            for bar, val in zip(bars, y):
+                ax5.text(bar.get_x() + bar.get_width()/2., val + 0.02,
+                        f'{val:.1%}', ha='center', va='bottom', fontsize=9)
+    
+    ax5.set_xlabel('Model')
+    ax5.set_ylabel('Accuracy')
+    ax5.set_title(f'High vs Low Confidence Accuracy - Letter "{letter.upper()}"')
+    ax5.set_xticks(range(len(letter_results)))
+    ax5.set_xticklabels([name.replace('-', ' ').title() for name in letter_results.keys()])
+    ax5.set_ylim(0, 1)
+    
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor='gray', alpha=0.9, label='High Confidence (>90%)'),
+                      Patch(facecolor='gray', alpha=0.5, label='Lower Confidence (≤90%)')]
+    ax5.legend(handles=legend_elements, loc='upper right')
+    
+    # 6. Calibration Analysis
+    ax6 = plt.subplot(2, 3, 6)
+    
+    for i, (model_name, results) in enumerate(letter_results.items()):
+        clean_name = model_name.replace('-', ' ').title()
+        df = pd.DataFrame(results)
+        
+        # Skip calibration analysis if no confidence data available
+        if 'confidence' not in df.columns or df['confidence'].isna().all():
+            continue
+        
+        # Calibration bins
+        confidence_bins = np.linspace(0, 100, 6)  # 5 bins
+        bin_centers = []
+        bin_accuracy = []
+        
+        for j in range(len(confidence_bins) - 1):
+            mask = (df['confidence'] >= confidence_bins[j]) & (df['confidence'] < confidence_bins[j+1])
+            subset = df[mask]
+            
+            if len(subset) >= 3:  # Minimum sample size
+                bin_centers.append((confidence_bins[j] + confidence_bins[j+1]) / 2)
+                bin_accuracy.append(subset['is_correct'].mean() * 100)
+        
+        if bin_centers:
+            ax6.plot(bin_centers, bin_accuracy, 
+                    marker='o', color=colors[i], linewidth=3, markersize=8,
+                    label=clean_name)
+    
+    # Perfect calibration line
+    ax6.plot([0, 100], [0, 100], 'k--', alpha=0.7, linewidth=2, label='Perfect Calibration')
+    ax6.set_xlabel('Predicted Confidence (%)')
+    ax6.set_ylabel('Actual Accuracy (%)')
+    ax6.set_title(f'Calibration Curve - Letter "{letter.upper()}"')
+    ax6.legend()
+    ax6.grid(True, alpha=0.3)
+    ax6.set_xlim(0, 100)
+    ax6.set_ylim(0, 100)
+    
+    plt.suptitle(f'OpenAI Models Comparison: Letter "{letter.upper()}" Counting Analysis', fontsize=16, y=0.98)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.93)
+    
+    output_path = os.path.join(output_dir, f'openai_models_letter_{letter}_comparison.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Visualize letter counting evaluation results'
     )
     parser.add_argument(
         'input_json',
-        help='Path to evaluation results JSON file'
+        nargs='+',
+        help='Path(s) to evaluation results JSON file(s). Supports wildcards. For comparison mode, script will automatically find the latest file for each model.'
     )
     parser.add_argument(
         '--output-dir',
@@ -388,9 +700,14 @@ def main():
     parser.add_argument(
         '--plots',
         nargs='+',
-        choices=['scatter', 'grid', 'violin', 'heatmap', 'dashboard', 'all'],
+        choices=['scatter', 'grid', 'violin', 'heatmap', 'dashboard', 'compare', 'all'],
         default=['all'],
-        help='Which plots to generate (default: all)'
+        help='Which plots to generate. Use "compare" for OpenAI model comparison (default: all)'
+    )
+    parser.add_argument(
+        '--letter',
+        default='r',
+        help='Letter to analyze for model comparison (default: r)'
     )
     parser.add_argument(
         '--format',
@@ -401,25 +718,66 @@ def main():
     
     args = parser.parse_args()
     
-    # Validate input file
-    if not os.path.exists(args.input_json):
-        print(f"Error: Input file '{args.input_json}' not found")
-        return 1
+    # Expand wildcards in input files
+    expanded_files = []
+    for pattern in args.input_json:
+        matches = glob.glob(pattern)
+        if matches:
+            expanded_files.extend(matches)
+        else:
+            # If no wildcard matches, treat as literal filename
+            expanded_files.append(pattern)
     
-    # Load data
-    print(f"Loading data from: {args.input_json}")
-    data = load_evaluation_data(args.input_json)
-    if data is None:
-        return 1
+    args.input_json = expanded_files
     
     # Set up output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # Extract model name from metadata
-    model_name = data.get('metadata', {}).get('model', 'Unknown')
-    
     # Set up plotting style
     setup_plotting_style()
+    
+    # Check if this is a comparison request
+    if 'compare' in args.plots:
+        # Validate input files exist
+        valid_files = [f for f in args.input_json if os.path.exists(f)]
+        if len(valid_files) < 2:
+            print(f"Error: Need at least 2 valid files for comparison. Found {len(valid_files)}: {valid_files}")
+            return 1
+        
+        print(f"Generating OpenAI model comparison for letter '{args.letter}'")
+        print(f"Found {len(valid_files)} valid files")
+        print(f"Output directory: {args.output_dir}")
+        
+        file_path = create_openai_model_comparison(valid_files, args.letter, args.output_dir)
+        
+        if file_path:
+            print(f"Generated comparison visualization: {file_path}")
+        else:
+            print("Failed to generate comparison visualization")
+            return 1
+        
+        return 0
+    
+    # Single model visualization mode
+    if len(args.input_json) > 1:
+        print("Error: Multiple files provided but 'compare' not in plots. Use --plots compare for model comparison.")
+        return 1
+    
+    input_file = args.input_json[0]
+    
+    # Validate input file
+    if not os.path.exists(input_file):
+        print(f"Error: Input file '{input_file}' not found")
+        return 1
+    
+    # Load data
+    print(f"Loading data from: {input_file}")
+    data = load_evaluation_data(input_file)
+    if data is None:
+        return 1
+    
+    # Extract model name from metadata
+    model_name = data.get('metadata', {}).get('model', 'Unknown')
     
     print(f"Generating visualizations for model: {model_name}")
     print(f"Output directory: {args.output_dir}")
